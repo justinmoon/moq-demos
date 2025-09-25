@@ -15,6 +15,16 @@ demo url='http://localhost:4443/anon':
 	bun install
 	VITE_RELAY_URL='{{url}}' bun run dev
 
-# Build a production bundle.
-build:
-	bun run build
+# Build a production bundle targeting the production relay by default.
+build url='https://moq.justinmoon.com/anon':
+	bun install
+	VITE_RELAY_URL='{{url}}' bun run build
+	@printf "\nBundle ready in dist/. Serve locally with:\n  just serve\n"
+
+# Serve the production bundle for local verification.
+serve:
+	if ! command -v bunx >/dev/null 2>&1; then \
+		echo "bunx not found; install Bun or adjust this target." >&2; \
+		exit 1; \
+	fi
+	bunx --bun serve dist
