@@ -11,6 +11,39 @@ import type { Player, PositionMessage, ProfilePayload } from "./types";
 import { clamp, randomColor, round, shortId } from "./utils";
 import { ZONES, zonesForPoint } from "./zones";
 
+interface DebugPlayerSnapshot {
+  key: string;
+  isLocal: boolean;
+  npub?: string;
+  x: number;
+  y: number;
+  zones: string[];
+}
+
+interface DebugConnectionState {
+  connected: boolean;
+  url: string;
+  localBroadcasts: number;
+  remoteSubscriptions: number;
+}
+
+interface MapDemoDebugApi {
+  getRelayUrl(): string;
+  getConnectionState(): DebugConnectionState;
+  getPlayers(): DebugPlayerSnapshot[];
+  setLocalPosition(x: number, y: number): DebugPlayerSnapshot;
+  getVolumes(): Record<string, number>;
+  getStatus(): string;
+}
+
+type DebugWindow = Window & { __mapDemo?: MapDemoDebugApi };
+
+declare global {
+  interface Window {
+    __mapDemo?: MapDemoDebugApi;
+  }
+}
+
 const ARENA_WIDTH = 640;
 const ARENA_HEIGHT = 480;
 const POSITION_TRACK = "position.json";
@@ -68,6 +101,8 @@ let captureMode: "mic" | "tone" | undefined;
 let currentSpeakingLevel = 0;
 let lastSpeakingSent = 0;
 let currentZones: string[] = [];
+
+installDebugApi();
 
 window.addEventListener("keydown", (event) => {
   if (event.repeat) return;
@@ -250,7 +285,9 @@ window.addEventListener("beforeunload", () => {
 (async () => {
   updateStatus(`Connecting to ${relayUrl}…`);
   try {
-    connection = await Moq.Connection.connect(new URL(relayUrl));
+    connection = await Moq.Connection.connect(new URL(relayUrl), {
+      websocket: { enabled: false },
+    });
     updateStatus("Connected. Login with Nostr to join.");
     startAnnouncementLoop(connection);
     setupLogin({
@@ -450,6 +487,7 @@ function subscribeTo(path: Moq.Path.Valid) {
 
   remoteSubscriptions.set(path, finish);
   audioPlayback.setVolume(path, 0);
+  updateAudioMix();
 
   (async () => {
     for (;;) {
@@ -716,6 +754,48 @@ function updateStatusIfNotFrozen(message: string) {
 function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((value, index) => value === b[index]);
+}
+
+function installDebugApi() {
+  const win = window as DebugWindow;
+  win.__mapDemo = {
+    getRelayUrl: () => relayUrl,
+    getConnectionState: (): DebugConnectionState => ({
+      connected: !!connection,
+      url: (connection?.url ?? new URL(relayUrl)).toString(),
+      localBroadcasts: selfBroadcastPaths.size,
+      remoteSubscriptions: remoteSubscriptions.size,
+    }),
+    getPlayers: (): DebugPlayerSnapshot[] =>
+      Array.from(players.entries()).map(([key, player]) => ({
+        key,
+        isLocal: !!player.isLocal,
+        npub: player.npub,
+        x: player.x,
+        y: player.y,
+        zones: [...(player.zones ?? [])],
+      })),
+    setLocalPosition: (x: number, y: number): DebugPlayerSnapshot => {
+      if (!currentProfile) {
+        throw new Error("local player not initialized");
+      }
+      localPlayer.x = clamp(x, 0, ARENA_WIDTH);
+      localPlayer.y = clamp(y, 0, ARENA_HEIGHT);
+      localPlayer.lastSeen = performance.now();
+      publishState(true);
+      updateLocalZones(true);
+      return {
+        key: localPlayer.key,
+        isLocal: true,
+        npub: localPlayer.npub,
+        x: localPlayer.x,
+        y: localPlayer.y,
+        zones: [...(localPlayer.zones ?? [])],
+      };
+    },
+    getVolumes: () => audioPlayback.getVolumes(),
+    getStatus: () => statusNode.textContent ?? "",
+  };
 }
 
 function intersects(a: readonly string[], b: readonly string[]): boolean {

@@ -33,6 +33,11 @@ install name='map-coordinates':
 map-coordinates url='http://localhost:4443/anon' base='/':
     just demo map-coordinates {{url}} {{base}}
 
+prod_relay_url := 'https://moq.justinmoon.com/anon'
+
+map-coordinates-prod base='/':
+    just demo map-coordinates {{prod_relay_url}} {{base}}
+
 # Install everything defined under demos/*/Justfile.
 install-all:
 	@set -euo pipefail; \

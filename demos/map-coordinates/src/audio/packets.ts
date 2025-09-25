@@ -53,7 +53,10 @@ export function decodePacket(payload: Uint8Array): DecodedPacket | undefined {
   if (payload.byteLength !== expected) return undefined;
 
   const dataOffset = payload.byteOffset + HEADER_BYTES;
-  const data = new Float32Array(payload.buffer, dataOffset, channelCount * frameCount);
+  const needsCopy = dataOffset % 4 !== 0;
+  const source = needsCopy ? payload.slice(HEADER_BYTES) : payload;
+  const offset = needsCopy ? source.byteOffset : source.byteOffset + HEADER_BYTES;
+  const data = new Float32Array(source.buffer, offset, channelCount * frameCount);
   const channels: Float32Array[] = [];
   for (let channel = 0; channel < channelCount; channel += 1) {
     const start = channel * frameCount;

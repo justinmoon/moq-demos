@@ -45,6 +45,18 @@ export class AudioPlayback {
     remote.gain.gain.value = value;
   }
 
+  getVolume(path: string): number | undefined {
+    return this.#remotes.get(path)?.gain.gain.value;
+  }
+
+  getVolumes(): Record<string, number> {
+    const snapshot: Record<string, number> = {};
+    for (const [key, remote] of this.#remotes) {
+      snapshot[key] = remote.gain.gain.value;
+    }
+    return snapshot;
+  }
+
   close(path: string) {
     const remote = this.#remotes.get(path);
     if (!remote) return;
