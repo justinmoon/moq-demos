@@ -21,17 +21,17 @@ gallery:
 		fi; \
 	done
 
-# Forward to a specific demo's Justfile, optionally overriding the relay URL.
-demo name url='http://localhost:4443/anon':
-    just --justfile {{demo_dir}}/{{name}}/Justfile demo {{url}}
+# Forward to a specific demo's Justfile, optionally overriding relay URL and base path.
+demo name url='http://localhost:4443/anon' base='/':
+    just --justfile {{demo_dir}}/{{name}}/Justfile demo {{url}} {{base}}
 
 # Install dependencies for a specific demo (defaults to map-coordinates).
 install name='map-coordinates':
     just --justfile {{demo_dir}}/{{name}}/Justfile install
 
 # Convenience alias for the map coordinates demo.
-map-coordinates url='http://localhost:4443/anon':
-    just demo map-coordinates {{url}}
+map-coordinates url='http://localhost:4443/anon' base='/':
+    just demo map-coordinates {{url}} {{base}}
 
 # Install everything defined under demos/*/Justfile.
 install-all:

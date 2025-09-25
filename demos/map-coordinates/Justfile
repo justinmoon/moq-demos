@@ -10,21 +10,30 @@ default:
 install:
 	bun install
 
-# Start the dev server, optionally pointing at a custom relay URL.
-demo url='http://localhost:4443/anon':
-	bun install
-	VITE_RELAY_URL='{{url}}' bun run dev
+# Start the dev server, optionally pointing at a custom relay URL and base path.
+demo url='http://localhost:4443/anon' base='/':
+    bun install
+    APP_BASE='{{base}}' VITE_RELAY_URL='{{url}}' bun run dev
 
 # Build a production bundle targeting the production relay by default.
-build url='https://moq.justinmoon.com/anon':
-	bun install
-	VITE_RELAY_URL='{{url}}' bun run build
-	@printf "\nBundle ready in dist/. Serve locally with:\n  just serve\n"
+build url='https://moq.justinmoon.com/anon' base='/':
+    bun install
+    APP_BASE='{{base}}' VITE_RELAY_URL='{{url}}' bun run build
+    @printf "\nBundle ready in dist/. Serve locally with:\n  just serve\n"
 
 # Serve the production bundle for local verification.
 serve:
-	if ! command -v bunx >/dev/null 2>&1; then \
-		echo "bunx not found; install Bun or adjust this target." >&2; \
-		exit 1; \
-	fi
-	bunx --bun serve dist
+    if ! command -v bunx >/dev/null 2>&1; then \
+        echo "bunx not found; install Bun or adjust this target." >&2; \
+        exit 1; \
+    fi
+    bunx --bun serve dist
+
+# Build and deploy to the static hosting target.
+static-deploy url='https://moq.justinmoon.com/anon' base='/s/map-coordinates/' app='map-coordinates':
+    just build url={{url}} base={{base}}
+    if ! command -v deploy-static >/dev/null 2>&1; then \
+        echo "deploy-static not found in PATH" >&2; \
+        exit 1; \
+    fi
+    deploy-static {{app}} dist
