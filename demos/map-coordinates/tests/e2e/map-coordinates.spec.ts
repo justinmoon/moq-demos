@@ -79,6 +79,37 @@ async function getRemoteVolume(page: Page): Promise<number | null> {
   });
 }
 
+async function getRemoteKey(page: Page): Promise<string | null> {
+  return page.evaluate(() => {
+    const api = window.__mapDemo;
+    if (!api) return null;
+    const players = api.getPlayers();
+    const remote = players.find((player) => !player.isLocal);
+    return remote?.key ?? null;
+  });
+}
+
+async function getAudioStatsFor(page: Page, key: string): Promise<{ framesDecoded: number; bufferedAhead: number; underruns: number } | null> {
+  return page.evaluate((targetKey) => {
+    const api = window.__mapDemo;
+    if (!api || !api.getAudioStats) return null;
+    const stats = api.getAudioStats();
+    return stats[targetKey] ?? null;
+  }, key);
+}
+
+async function waitForHealthyAudio(page: Page, key: string, baseline: { framesDecoded: number; underruns: number }) {
+  await expect.poll(async () => {
+    const stats = await getAudioStatsFor(page, key);
+    if (!stats) return null;
+    const framesDelta = stats.framesDecoded - baseline.framesDecoded;
+    const underrunsDelta = stats.underruns - baseline.underruns;
+    const buffered = stats.bufferedAhead;
+    const healthy = framesDelta > 200 && underrunsDelta === 0 && buffered >= 0.05;
+    return healthy;
+  }, { timeout: 15_000 }).toBeTruthy();
+}
+
 test("connects via WebTransport and gates audio by zone", async ({ browser }) => {
   const logsA: string[] = [];
   const logsB: string[] = [];
@@ -125,6 +156,15 @@ test("connects via WebTransport and gates audio by zone", async ({ browser }) =>
       return zones?.includes("forge") ?? false;
     }, { timeout: 30_000 }).toBeTruthy();
 
+    const remoteKeyForB = await getRemoteKey(pageB);
+    expect(remoteKeyForB).not.toBeNull();
+    const remoteKey = remoteKeyForB!;
+    const baselineStats = (await getAudioStatsFor(pageB, remoteKey)) ?? {
+      framesDecoded: 0,
+      bufferedAhead: 0,
+      underruns: 0,
+    };
+
     const toneButton = pageA.getByRole("button", { name: /play test tone/i });
     await expect(toneButton).toBeEnabled();
     await toneButton.click();
@@ -134,6 +174,8 @@ test("connects via WebTransport and gates audio by zone", async ({ browser }) =>
       const volume = await getRemoteVolume(pageB);
       return volume ?? -1;
     }, { timeout: 45_000 }).toBeGreaterThan(0.5);
+
+    await waitForHealthyAudio(pageB, remoteKey, baselineStats);
 
     await setPosition(pageA, LIBRARY_POINT);
 

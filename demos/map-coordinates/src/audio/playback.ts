@@ -1,8 +1,17 @@
 import type { DecodedPacket } from "./packets";
 
+const LEAD_SECONDS = 0.15;
+
+export interface PlaybackStats {
+  framesDecoded: number;
+  bufferedAhead: number;
+  underruns: number;
+}
+
 interface RemoteState {
   gain: GainNode;
   nextTime: number;
+  stats: PlaybackStats;
 }
 
 export class AudioPlayback {
@@ -29,7 +38,12 @@ export class AudioPlayback {
     }
 
     const remote = this.#remotes.get(path) ?? this.#createRemote(path);
-    const startAt = Math.max(remote.nextTime, context.currentTime + 0.05);
+    if (remote.nextTime < context.currentTime) {
+      remote.stats.underruns += 1;
+      remote.nextTime = context.currentTime;
+    }
+
+    const startAt = Math.max(remote.nextTime, context.currentTime + LEAD_SECONDS);
 
     const source = context.createBufferSource();
     source.buffer = buffer;
@@ -37,6 +51,8 @@ export class AudioPlayback {
     source.start(startAt);
 
     remote.nextTime = startAt + buffer.duration;
+    remote.stats.framesDecoded += frameCount;
+    remote.stats.bufferedAhead = Math.max(0, remote.nextTime - context.currentTime);
   }
 
   setVolume(path: string, value: number) {
@@ -53,6 +69,20 @@ export class AudioPlayback {
     const snapshot: Record<string, number> = {};
     for (const [key, remote] of this.#remotes) {
       snapshot[key] = remote.gain.gain.value;
+    }
+    return snapshot;
+  }
+
+  getStats(path: string): PlaybackStats | undefined {
+    const remote = this.#remotes.get(path);
+    if (!remote) return undefined;
+    return { ...remote.stats };
+  }
+
+  getAllStats(): Record<string, PlaybackStats> {
+    const snapshot: Record<string, PlaybackStats> = {};
+    for (const [key, remote] of this.#remotes) {
+      snapshot[key] = { ...remote.stats };
     }
     return snapshot;
   }
@@ -82,7 +112,12 @@ export class AudioPlayback {
 
     const state: RemoteState = {
       gain,
-      nextTime: this.#context.currentTime + 0.05,
+      nextTime: this.#context.currentTime + LEAD_SECONDS,
+      stats: {
+        framesDecoded: 0,
+        bufferedAhead: 0,
+        underruns: 0,
+      },
     };
     this.#remotes.set(path, state);
     return state;

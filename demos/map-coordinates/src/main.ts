@@ -2,6 +2,7 @@ import * as Moq from "@kixelated/moq";
 import { queueAvatarLoad } from "./avatars";
 import { AudioCapture } from "./audio/capture";
 import { AudioPlayback } from "./audio/playback";
+import type { PlaybackStats } from "./audio/playback";
 import { decodePacket, encodePacket } from "./audio/packets";
 import { setupLogin } from "./login";
 import { drawGrid, drawPlayer, drawZones } from "./render";
@@ -27,12 +28,15 @@ interface DebugConnectionState {
   remoteSubscriptions: number;
 }
 
+interface DebugAudioStats extends PlaybackStats {}
+
 interface MapDemoDebugApi {
   getRelayUrl(): string;
   getConnectionState(): DebugConnectionState;
   getPlayers(): DebugPlayerSnapshot[];
   setLocalPosition(x: number, y: number): DebugPlayerSnapshot;
   getVolumes(): Record<string, number>;
+  getAudioStats(): Record<string, DebugAudioStats>;
   getStatus(): string;
 }
 
@@ -794,6 +798,7 @@ function installDebugApi() {
       };
     },
     getVolumes: () => audioPlayback.getVolumes(),
+    getAudioStats: () => audioPlayback.getAllStats(),
     getStatus: () => statusNode.textContent ?? "",
   };
 }
