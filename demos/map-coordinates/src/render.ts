@@ -1,11 +1,27 @@
 import type { Player } from "./types";
 import { playerLabel } from "./players";
 import { shortenNpub } from "./nostr";
+import { ZONES } from "./zones";
 
 export const SPEAKING_VISIBLE_THRESHOLD = 0.02;
 
 export function shouldShowSpeaking(level?: number): boolean {
   return (level ?? 0) > SPEAKING_VISIBLE_THRESHOLD;
+}
+
+export function drawZones(ctx: CanvasRenderingContext2D, activeZoneIds: ReadonlyArray<string>) {
+  for (const zone of ZONES) {
+    const isActive = activeZoneIds.includes(zone.id);
+    ctx.save();
+    ctx.fillStyle = isActive ? "rgba(56, 189, 248, 0.18)" : "rgba(15, 23, 42, 0.12)";
+    ctx.strokeStyle = isActive ? "rgba(56, 189, 248, 0.6)" : "rgba(148, 163, 184, 0.3)";
+    ctx.lineWidth = isActive ? 3 : 1;
+    ctx.beginPath();
+    ctx.rect(zone.rect.x, zone.rect.y, zone.rect.width, zone.rect.height);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 export function drawGrid(ctx: CanvasRenderingContext2D, width: number, height: number) {

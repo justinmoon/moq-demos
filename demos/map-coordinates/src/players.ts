@@ -20,6 +20,7 @@ export function ensurePlayer(
       lastSeen: performance.now(),
       isLocal: false,
       speakingLevel: 0,
+      zones: [],
     };
     players.set(path, player);
   } else {

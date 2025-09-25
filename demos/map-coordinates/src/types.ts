@@ -29,4 +29,5 @@ export interface Player {
   image?: HTMLImageElement;
   imageUrl?: string;
   speakingLevel?: number;
+  zones?: string[];
 }

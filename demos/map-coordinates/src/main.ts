@@ -4,11 +4,12 @@ import { AudioCapture } from "./audio/capture";
 import { AudioPlayback } from "./audio/playback";
 import { decodePacket, encodePacket } from "./audio/packets";
 import { setupLogin } from "./login";
-import { drawGrid, drawPlayer } from "./render";
-import { parsePosition, parseProfile, parseSpeaking } from "./parsers";
+import { drawGrid, drawPlayer, drawZones } from "./render";
+import { parsePosition, parseProfile, parseSpeaking, parseZones } from "./parsers";
 import { ensurePlayer, pruneStale } from "./players";
 import type { Player, PositionMessage, ProfilePayload } from "./types";
 import { clamp, randomColor, round, shortId } from "./utils";
+import { ZONES, zonesForPoint } from "./zones";
 
 const ARENA_WIDTH = 640;
 const ARENA_HEIGHT = 480;
@@ -16,6 +17,7 @@ const POSITION_TRACK = "position.json";
 const PROFILE_TRACK = "profile.json";
 const AUDIO_TRACK = "audio.pcm";
 const SPEAKING_TRACK = "speaking.json";
+const ZONES_TRACK = "zones.json";
 const SPEED = 180; // pixels per second
 const SNAPSHOT_INTERVAL = 120; // ms between movement updates
 const HEARTBEAT_INTERVAL = 2000; // ms between idle keep-alives
@@ -56,6 +58,7 @@ const positionSubscribers = new Set<Moq.Track>();
 const profileSubscribers = new Set<Moq.Track>();
 const audioSubscribers = new Set<Moq.Track>();
 const speakingSubscribers = new Set<Moq.Track>();
+const zonesSubscribers = new Set<Moq.Track>();
 const selfBroadcastPaths = new Set<Moq.Path.Valid>();
 const keys = new Set<string>();
 
@@ -64,6 +67,7 @@ const audioPlayback = new AudioPlayback();
 let captureMode: "mic" | "tone" | undefined;
 let currentSpeakingLevel = 0;
 let lastSpeakingSent = 0;
+let currentZones: string[] = [];
 
 window.addEventListener("keydown", (event) => {
   if (event.repeat) return;
@@ -85,6 +89,7 @@ const localPlayer: Player = {
   color: randomColor(),
   lastSeen: performance.now(),
   isLocal: true,
+  zones: [],
 };
 let lastSnapshotAt = 0;
 let lastSentX = localPlayer.x;
@@ -212,6 +217,31 @@ function broadcastSpeakingLevel() {
   }
 }
 
+function sendZones(track: Moq.Track) {
+  try {
+    track.writeJson({ zones: currentZones, ts: Date.now() });
+  } catch (error) {
+    console.warn("failed to write zones", error);
+    zonesSubscribers.delete(track);
+  }
+}
+
+function broadcastZonesUpdate() {
+  for (const track of [...zonesSubscribers]) {
+    sendZones(track);
+  }
+}
+
+function updateAudioMix() {
+  const localZones = localPlayer.zones ?? [];
+  for (const [path, player] of players) {
+    if (player.isLocal) continue;
+    const remoteZones = player.zones ?? [];
+    const audible = intersects(localZones, remoteZones);
+    audioPlayback.setVolume(path, audible ? 1 : 0);
+  }
+}
+
 window.addEventListener("beforeunload", () => {
   audioCapture?.stop().catch(() => {});
   audioPlayback.shutdown();
@@ -253,6 +283,7 @@ async function startSession(active: Moq.Connection.Established, profile: Profile
   localPlayer.npub = profile.npub;
   localPlayer.profile = profile;
   queueAvatarLoad(localPlayer, profile.picture);
+  updateLocalZones(true);
 
   players.set(broadcastPath, localPlayer);
   selfBroadcastPaths.add(broadcastPath);
@@ -260,6 +291,7 @@ async function startSession(active: Moq.Connection.Established, profile: Profile
   active.publish(broadcastPath, broadcast);
   runPublishLoop(broadcast, broadcastPath);
   publishState(true);
+  broadcastZonesUpdate();
 
   window.addEventListener("beforeunload", () => {
     broadcast?.close();
@@ -291,6 +323,14 @@ function runPublishLoop(active: Moq.Broadcast, selfPath: Moq.Path.Valid) {
               profileSubscribers.delete(track);
             });
           sendProfile(track);
+        } else if (track.name === ZONES_TRACK) {
+          zonesSubscribers.add(track);
+          track.closed
+            .catch(() => undefined)
+            .finally(() => {
+              zonesSubscribers.delete(track);
+            });
+          sendZones(track);
         } else if (track.name === AUDIO_TRACK) {
           audioSubscribers.add(track);
           track.closed
@@ -375,10 +415,18 @@ function subscribeTo(path: Moq.Path.Valid) {
     console.warn(`speaking track unavailable for ${path}`, error);
   }
 
+  let zonesTrack: Moq.Track | undefined;
+  try {
+    zonesTrack = broadcast.subscribe(ZONES_TRACK, 0);
+  } catch (error) {
+    console.warn(`zones track unavailable for ${path}`, error);
+  }
+
   let positionActive = true;
   let profileActive = !!profileTrack;
   let audioActive = !!audioTrack;
   let speakingActive = !!speakingTrack;
+  let zonesActive = !!zonesTrack;
   let closed = false;
 
   const finish = () => {
@@ -389,15 +437,19 @@ function subscribeTo(path: Moq.Path.Valid) {
     profileTrack?.close();
     audioTrack?.close();
     speakingTrack?.close();
+    zonesTrack?.close();
     audioPlayback.close(path);
     const existing = players.get(path);
     if (existing && !existing.isLocal) {
       existing.speakingLevel = 0;
+      existing.zones = [];
       players.delete(path);
     }
+    updateAudioMix();
   };
 
   remoteSubscriptions.set(path, finish);
+  audioPlayback.setVolume(path, 0);
 
   (async () => {
     for (;;) {
@@ -457,6 +509,30 @@ function subscribeTo(path: Moq.Path.Valid) {
       })
       .finally(() => {
         audioActive = false;
+      maybeFinish();
+    });
+  }
+
+  if (zonesTrack) {
+    (async () => {
+      for (;;) {
+        const payload = await zonesTrack.readJson();
+        if (!payload) break;
+        const zones = parseZones(payload);
+        if (!zones) continue;
+        const player = ensurePlayer(players, path, undefined, undefined, localPlayer);
+        player.zones = zones;
+        updateAudioMix();
+      }
+    })()
+      .catch((error) => {
+        console.warn(`zones subscription failed for ${path}`, error);
+      })
+      .finally(() => {
+        zonesActive = false;
+        const player = players.get(path);
+        if (player) player.zones = [];
+        updateAudioMix();
         maybeFinish();
       });
   }
@@ -484,7 +560,7 @@ function subscribeTo(path: Moq.Path.Valid) {
   }
 
   function maybeFinish() {
-    if (!positionActive && !profileActive && !audioActive && !speakingActive) {
+    if (!positionActive && !profileActive && !audioActive && !speakingActive && !zonesActive) {
       finish();
     }
   }
@@ -586,6 +662,7 @@ function updateLocalPosition(dt: number) {
 
   if (dx === 0 && dy === 0) {
     publishState();
+    updateLocalZones();
     return;
   }
 
@@ -595,19 +672,34 @@ function updateLocalPosition(dt: number) {
   localPlayer.lastSeen = performance.now();
 
   publishState();
+  updateLocalZones();
+}
+
+function updateLocalZones(force = false) {
+  const next = zonesForPoint(localPlayer.x, localPlayer.y);
+  if (!force && arraysEqual(next, currentZones)) return;
+  currentZones = next;
+  localPlayer.zones = next;
+  broadcastZonesUpdate();
+  updateAudioMix();
 }
 
 function render() {
   ctx.clearRect(0, 0, ARENA_WIDTH, ARENA_HEIGHT);
+  drawZones(ctx, localPlayer.zones ?? []);
   drawGrid(ctx, ARENA_WIDTH, ARENA_HEIGHT);
   for (const player of players.values()) {
     drawPlayer(ctx, player);
   }
 
+  const zoneLabel = (localPlayer.zones ?? [])
+    .map((id) => ZONES.find((zone) => zone.id === id)?.name ?? id)
+    .join(", ") || "None";
+
   const label = connection
     ? currentProfile
-      ? `Connected · players: ${players.size}`
-      : `Spectating · players: ${players.size}`
+      ? `Connected · players: ${players.size} · zone: ${zoneLabel}`
+      : `Spectating · players: ${players.size} · zone: ${zoneLabel}`
     : `Connecting to ${relayUrl}…`;
   updateStatusIfNotFrozen(label);
 }
@@ -619,4 +711,14 @@ function updateStatus(message: string, freeze = false) {
 function updateStatusIfNotFrozen(message: string) {
   if (statusFrozen) return;
   statusNode.textContent = message;
+}
+
+function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((value, index) => value === b[index]);
+}
+
+function intersects(a: readonly string[], b: readonly string[]): boolean {
+  if (!a.length || !b.length) return false;
+  return a.some((value) => b.includes(value));
 }

@@ -29,6 +29,14 @@ export function parseProfile(value: unknown): ProfilePayload | undefined {
   return { npub, pubkey, displayName, name, picture, about, relays, updatedAt };
 }
 
+export function parseZones(value: unknown): string[] | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const zones = (value as Record<string, unknown>).zones;
+  if (!Array.isArray(zones)) return undefined;
+  const parsed = zones.filter((zone): zone is string => typeof zone === "string");
+  return parsed;
+}
+
 export function parseSpeaking(value: unknown): number | undefined {
   if (!value || typeof value !== "object") return undefined;
   const level = (value as Record<string, unknown>).level;
