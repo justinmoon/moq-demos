@@ -98,14 +98,22 @@ async function getAudioStatsFor(page: Page, key: string): Promise<{ framesDecode
   }, key);
 }
 
-async function waitForHealthyAudio(page: Page, key: string, baseline: { framesDecoded: number; underruns: number }) {
+async function waitForHealthyAudio(
+  page: Page,
+  key: string,
+  baseline: { framesDecoded: number; underruns: number },
+) {
   await expect.poll(async () => {
     const stats = await getAudioStatsFor(page, key);
     if (!stats) return null;
     const framesDelta = stats.framesDecoded - baseline.framesDecoded;
     const underrunsDelta = stats.underruns - baseline.underruns;
     const buffered = stats.bufferedAhead;
-    const healthy = framesDelta > 200 && underrunsDelta === 0 && buffered >= 0.1;
+    const targetLead = stats.targetLead ?? 0;
+    const healthy =
+      framesDelta > 200 &&
+      underrunsDelta === 0 &&
+      buffered >= Math.max(0.1, targetLead - 0.05);
     return healthy;
   }, { timeout: 15_000 }).toBeTruthy();
 }

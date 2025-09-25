@@ -1,17 +1,26 @@
 import type { DecodedPacket } from "./packets";
 
-const LEAD_SECONDS = 0.35;
+const MIN_LEAD_SECONDS = 0.15;
+const MAX_LEAD_SECONDS = 0.75;
+const LEAD_STEP_UP = 0.08;
+const LEAD_STEP_DOWN = 0.02;
+const STABLE_SECONDS = 8;
+const SHRINK_COOLDOWN_SECONDS = 4;
 
 export interface PlaybackStats {
   framesDecoded: number;
   bufferedAhead: number;
   underruns: number;
+  targetLead: number;
 }
 
 interface RemoteState {
   gain: GainNode;
   nextTime: number;
   stats: PlaybackStats;
+  targetLead: number;
+  lastUnderrunAt: number;
+  lastAdjustmentAt: number;
 }
 
 export class AudioPlayback {
@@ -38,12 +47,17 @@ export class AudioPlayback {
     }
 
     const remote = this.#remotes.get(path) ?? this.#createRemote(path);
-    if (remote.nextTime < context.currentTime) {
+    const now = context.currentTime;
+
+    if (remote.nextTime < now) {
       remote.stats.underruns += 1;
-      remote.nextTime = context.currentTime;
+      remote.lastUnderrunAt = now;
+      remote.targetLead = Math.min(MAX_LEAD_SECONDS, remote.targetLead + LEAD_STEP_UP);
+      remote.lastAdjustmentAt = now;
+      remote.nextTime = now + remote.targetLead;
     }
 
-    const startAt = Math.max(remote.nextTime, context.currentTime + LEAD_SECONDS);
+    const startAt = Math.max(remote.nextTime, now + remote.targetLead);
 
     const source = context.createBufferSource();
     source.buffer = buffer;
@@ -53,6 +67,22 @@ export class AudioPlayback {
     remote.nextTime = startAt + buffer.duration;
     remote.stats.framesDecoded += frameCount;
     remote.stats.bufferedAhead = Math.max(0, remote.nextTime - context.currentTime);
+    remote.stats.targetLead = remote.targetLead;
+
+    if (
+      remote.targetLead > MIN_LEAD_SECONDS &&
+      remote.stats.underruns > 0 &&
+      now - remote.lastUnderrunAt > STABLE_SECONDS &&
+      now - remote.lastAdjustmentAt > SHRINK_COOLDOWN_SECONDS &&
+      remote.stats.bufferedAhead > remote.targetLead + 0.05
+    ) {
+      remote.targetLead = Math.max(MIN_LEAD_SECONDS, remote.targetLead - LEAD_STEP_DOWN);
+      remote.lastAdjustmentAt = now;
+      remote.stats.targetLead = remote.targetLead;
+      if (remote.nextTime < now + remote.targetLead) {
+        remote.nextTime = now + remote.targetLead;
+      }
+    }
   }
 
   setVolume(path: string, value: number) {
@@ -110,14 +140,19 @@ export class AudioPlayback {
     gain.gain.value = 1;
     gain.connect(this.#context.destination);
 
+    const now = this.#context.currentTime;
     const state: RemoteState = {
       gain,
-      nextTime: this.#context.currentTime + LEAD_SECONDS,
+      nextTime: now + MIN_LEAD_SECONDS,
       stats: {
         framesDecoded: 0,
         bufferedAhead: 0,
         underruns: 0,
+        targetLead: MIN_LEAD_SECONDS,
       },
+      targetLead: MIN_LEAD_SECONDS,
+      lastUnderrunAt: -Infinity,
+      lastAdjustmentAt: now,
     };
     this.#remotes.set(path, state);
     return state;
