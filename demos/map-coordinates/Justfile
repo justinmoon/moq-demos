@@ -30,7 +30,7 @@ serve:
     bunx --bun serve dist
 
 # Build and deploy to the static hosting target.
-static-deploy app='map-coordinates':
+deploy-static app='map-coordinates':
     #!/usr/bin/env bash
     set -e
     APP_NAME="{{app}}"
