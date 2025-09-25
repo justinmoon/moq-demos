@@ -42,6 +42,40 @@
         margin-bottom: 1rem;
         color: #7dd3fc;
       }
+      #login {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
+        padding: 0.6rem 1.2rem;
+        margin-bottom: 1rem;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: #0f172a;
+        background: #7dd3fc;
+        border: none;
+        border-radius: 999px;
+        cursor: pointer;
+        transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+      }
+      #login[disabled] {
+        cursor: not-allowed;
+        opacity: 0.6;
+      }
+      #login:not([disabled]):hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 24px rgba(125, 211, 252, 0.35);
+      }
+      #login.success {
+        background: #34d399;
+        color: #052e16;
+      }
+      #nostr-warning {
+        margin-top: 0;
+        margin-bottom: 1rem;
+        font-size: 0.9rem;
+        color: rgba(252, 211, 77, 0.9);
+      }
       canvas {
         display: block;
         width: 100%;
@@ -57,6 +91,10 @@
       <h1>MoQ Map Coordinates · Shared Arena</h1>
       <p>Open this page in multiple windows. Use WASD or arrow keys to walk around and watch positions sync in real time.</p>
       <div id="status">Connecting…</div>
+      <button id="login" disabled>Login with Nostr</button>
+      <p id="nostr-warning" hidden>
+        Missing a Nostr signer? Install a NIP-07 browser extension (for example, Alby or Damus) and refresh to join the arena.
+      </p>
       <canvas id="arena" width="640" height="480"></canvas>
     </main>
     <script type="module" src="/src/main.ts"></script>

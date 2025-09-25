@@ -2,9 +2,11 @@
 
 A lightweight multiplayer sketch that uses the local MoQ relay to fan out player locations. Open multiple browser tabs to see avatars move across the same grid.
 
-## Controls
+## Controls & Flow
 
-- Move with WASD or arrow keys.
+- The page auto-connects to the local MoQ relay and then waits for a Nostr login.
+- Use a NIP-07 signer (Alby, Damus, etc.) and click **Login with Nostr** to join the arena.
+- Move with WASD or arrow keys once logged in.
 - Adjust the relay endpoint by setting `VITE_RELAY_URL` (defaults to `http://localhost:4443/anon`).
 
 ## Recipes
