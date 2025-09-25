@@ -2,6 +2,12 @@ import type { Player } from "./types";
 import { playerLabel } from "./players";
 import { shortenNpub } from "./nostr";
 
+export const SPEAKING_VISIBLE_THRESHOLD = 0.02;
+
+export function shouldShowSpeaking(level?: number): boolean {
+  return (level ?? 0) > SPEAKING_VISIBLE_THRESHOLD;
+}
+
 export function drawGrid(ctx: CanvasRenderingContext2D, width: number, height: number) {
   ctx.save();
   ctx.strokeStyle = "rgba(148, 163, 184, 0.15)";
@@ -47,14 +53,14 @@ export function drawPlayer(ctx: CanvasRenderingContext2D, player: Player) {
   ctx.fillText(playerLabel(player, shortenNpub), player.x, player.y - radius - 6);
   ctx.restore();
 
-  if ((player.speakingLevel ?? 0) > 0.05) {
+  if (shouldShowSpeaking(player.speakingLevel)) {
     const intensity = Math.min(player.speakingLevel ?? 0, 1);
-    const glowRadius = 14 + intensity * 6;
+    const ringRadius = radius + 8 + intensity * 6;
     ctx.save();
-    ctx.strokeStyle = `rgba(52, 211, 153, ${0.3 + intensity * 0.5})`;
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = `rgba(52, 211, 153, ${0.25 + intensity * 0.45})`;
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(player.x, player.y - radius - 12, glowRadius / 2, 0, Math.PI * 2);
+    ctx.arc(player.x, player.y, ringRadius, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }
