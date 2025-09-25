@@ -1,5 +1,5 @@
 const VERSION = 1;
-const HEADER_BYTES = 1 + 1 + 4 + 4;
+const HEADER_BYTES = 16; // align to 32-bit boundary for Float32Array slices
 
 export interface EncodedPacket {
   buffer: Uint8Array;
@@ -25,7 +25,8 @@ export function encodePacket(channels: Float32Array[], sampleRate: number): Enco
   view.setUint32(2, sampleRate, true);
   view.setUint32(6, frameCount, true);
 
-  const data = new Float32Array(arrayBuffer, HEADER_BYTES, frameCount * channelCount);
+  const dataOffset = HEADER_BYTES;
+  const data = new Float32Array(arrayBuffer, dataOffset, frameCount * channelCount);
   for (let channel = 0; channel < channelCount; channel += 1) {
     const source = channels[channel];
     if (source.length !== frameCount) return undefined;
@@ -51,7 +52,8 @@ export function decodePacket(payload: Uint8Array): DecodedPacket | undefined {
   const expected = HEADER_BYTES + channelCount * frameCount * 4;
   if (payload.byteLength !== expected) return undefined;
 
-  const data = new Float32Array(payload.buffer, payload.byteOffset + HEADER_BYTES, channelCount * frameCount);
+  const dataOffset = payload.byteOffset + HEADER_BYTES;
+  const data = new Float32Array(payload.buffer, dataOffset, channelCount * frameCount);
   const channels: Float32Array[] = [];
   for (let channel = 0; channel < channelCount; channel += 1) {
     const start = channel * frameCount;
