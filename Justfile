@@ -41,3 +41,22 @@ install-all:
 			just install "$demo"; \
 		fi; \
 	done
+
+prod_host := 'moq.justinmoon.com'
+prod_ip := '135.181.179.143'
+
+# Fetch the relay's TLS fingerprint via Caddy to verify the production instance is alive.
+# Pass ip='dns' to rely on your local DNS instead of --resolve.
+test-prod ip=prod_ip host=prod_host:
+	set -euo pipefail; \
+	fingerprint=$(if [ "{{ip}}" = "dns" ]; then \
+		curl --silent --show-error --fail "https://{{host}}/certificate.sha256"; \
+	else \
+		curl --silent --show-error --fail --resolve "{{host}}:443:{{ip}}" "https://{{host}}/certificate.sha256"; \
+	fi); \
+	if [ -z "$fingerprint" ]; then \
+		echo "relay responded but no fingerprint returned" >&2; \
+		exit 1; \
+	fi; \
+	printf "certificate.sha256: %s\n" "$fingerprint"; \
+	printf "✓ %s responded with certificate fingerprint\n" "{{host}}"
