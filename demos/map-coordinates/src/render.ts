@@ -46,4 +46,16 @@ export function drawPlayer(ctx: CanvasRenderingContext2D, player: Player) {
   ctx.fillStyle = "rgba(15, 23, 42, 0.9)";
   ctx.fillText(playerLabel(player, shortenNpub), player.x, player.y - radius - 6);
   ctx.restore();
+
+  if ((player.speakingLevel ?? 0) > 0.05) {
+    const intensity = Math.min(player.speakingLevel ?? 0, 1);
+    const glowRadius = 14 + intensity * 6;
+    ctx.save();
+    ctx.strokeStyle = `rgba(52, 211, 153, ${0.3 + intensity * 0.5})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(player.x, player.y - radius - 12, glowRadius / 2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
 }

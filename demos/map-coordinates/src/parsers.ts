@@ -28,3 +28,10 @@ export function parseProfile(value: unknown): ProfilePayload | undefined {
   const updatedAt = typeof record.updatedAt === "number" ? record.updatedAt : undefined;
   return { npub, pubkey, displayName, name, picture, about, relays, updatedAt };
 }
+
+export function parseSpeaking(value: unknown): number | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const level = (value as Record<string, unknown>).level;
+  if (typeof level !== "number" || Number.isNaN(level)) return undefined;
+  return Math.max(0, Math.min(1, level));
+}

@@ -19,6 +19,7 @@ export function ensurePlayer(
       color: color ?? randomColor(),
       lastSeen: performance.now(),
       isLocal: false,
+      speakingLevel: 0,
     };
     players.set(path, player);
   } else {

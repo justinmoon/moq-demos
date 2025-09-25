@@ -28,4 +28,5 @@ export interface Player {
   profile?: ProfilePayload;
   image?: HTMLImageElement;
   imageUrl?: string;
+  speakingLevel?: number;
 }

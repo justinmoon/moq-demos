@@ -1,8 +1,11 @@
 import * as Moq from "@kixelated/moq";
 import { queueAvatarLoad } from "./avatars";
+import { AudioCapture } from "./audio/capture";
+import { AudioPlayback } from "./audio/playback";
+import { decodePacket, encodePacket } from "./audio/packets";
 import { setupLogin } from "./login";
 import { drawGrid, drawPlayer } from "./render";
-import { parsePosition, parseProfile } from "./parsers";
+import { parsePosition, parseProfile, parseSpeaking } from "./parsers";
 import { ensurePlayer, pruneStale } from "./players";
 import type { Player, PositionMessage, ProfilePayload } from "./types";
 import { clamp, randomColor, round, shortId } from "./utils";
@@ -11,15 +14,22 @@ const ARENA_WIDTH = 640;
 const ARENA_HEIGHT = 480;
 const POSITION_TRACK = "position.json";
 const PROFILE_TRACK = "profile.json";
+const AUDIO_TRACK = "audio.pcm";
+const SPEAKING_TRACK = "speaking.json";
 const SPEED = 180; // pixels per second
 const SNAPSHOT_INTERVAL = 120; // ms between movement updates
 const HEARTBEAT_INTERVAL = 2000; // ms between idle keep-alives
 const STALE_TIMEOUT = 5000; // ms before removing remote avatars
+const SPEAKING_INTERVAL_MS = 150;
 
 const canvas = document.getElementById("arena") as HTMLCanvasElement | null;
 const statusEl = document.getElementById("status");
 const loginButton = document.getElementById("login") as HTMLButtonElement | null;
 const nostrWarning = document.getElementById("nostr-warning") as HTMLParagraphElement | null;
+const audioControls = document.getElementById("audio-controls") as HTMLFieldsetElement | null;
+const micToggle = document.getElementById("mic-toggle") as HTMLButtonElement | null;
+const toneToggle = document.getElementById("tone-toggle") as HTMLButtonElement | null;
+const monitorCheckbox = document.getElementById("monitor-audio") as HTMLInputElement | null;
 
 if (!canvas) {
   throw new Error("missing arena canvas");
@@ -44,8 +54,17 @@ const players = new Map<string, Player>();
 const remoteSubscriptions = new Map<string, () => void>();
 const positionSubscribers = new Set<Moq.Track>();
 const profileSubscribers = new Set<Moq.Track>();
+const audioSubscribers = new Set<Moq.Track>();
+const speakingSubscribers = new Set<Moq.Track>();
 const selfBroadcastPaths = new Set<Moq.Path.Valid>();
 const keys = new Set<string>();
+
+let audioCapture: AudioCapture | undefined;
+const audioPlayback = new AudioPlayback();
+let captureMode: "mic" | "tone" | undefined;
+let currentSpeakingLevel = 0;
+let lastSpeakingSent = 0;
+
 window.addEventListener("keydown", (event) => {
   if (event.repeat) return;
   keys.add(event.code);
@@ -72,6 +91,132 @@ let lastSentX = localPlayer.x;
 let lastSentY = localPlayer.y;
 let lastFrameTime = performance.now();
 
+setupAudioUi();
+
+function setupAudioUi() {
+  updateCaptureButtons();
+
+  micToggle?.addEventListener("click", () => {
+    void toggleCapture("mic");
+  });
+  toneToggle?.addEventListener("click", () => {
+    void toggleCapture("tone");
+  });
+  monitorCheckbox?.addEventListener("change", () => {
+    if (!captureMode) return;
+    void startCapture(captureMode);
+  });
+}
+
+function enableAudioControls() {
+  if (!audioControls) return;
+  audioControls.disabled = false;
+  micToggle?.removeAttribute("disabled");
+  toneToggle?.removeAttribute("disabled");
+  audioPlayback.resume().catch(() => {});
+}
+
+async function toggleCapture(mode: "mic" | "tone") {
+  if (captureMode === mode) {
+    await stopCapture();
+  } else {
+    await startCapture(mode);
+  }
+}
+
+async function startCapture(mode: "mic" | "tone") {
+  if (audioCapture) {
+    await audioCapture.stop();
+  }
+  captureMode = mode;
+  audioCapture = new AudioCapture(
+    {
+      onSamples: (channels, sampleRate) => handleCapturedSamples(channels, sampleRate),
+      onLevel: (level) => handleCapturedLevel(level),
+    },
+    {
+      syntheticTone: mode === "tone",
+      monitor: monitorCheckbox?.checked ?? false,
+    },
+  );
+
+  try {
+    await audioPlayback.resume();
+    await audioCapture.start();
+  } catch (error) {
+    captureMode = undefined;
+    audioCapture = undefined;
+    console.error("audio capture failed", error);
+    updateStatus(`Audio capture failed: ${(error as Error).message}`);
+  }
+
+  updateCaptureButtons();
+}
+
+async function stopCapture() {
+  if (audioCapture) {
+    await audioCapture.stop();
+  }
+  audioCapture = undefined;
+  captureMode = undefined;
+  updateCaptureButtons();
+  updateSpeakingLevel(0, true);
+}
+
+function updateCaptureButtons() {
+  if (micToggle) {
+    micToggle.classList.toggle("active", captureMode === "mic");
+    micToggle.textContent = captureMode === "mic" ? "Disable Microphone" : "Enable Microphone";
+  }
+  if (toneToggle) {
+    toneToggle.classList.toggle("active", captureMode === "tone");
+    toneToggle.textContent = captureMode === "tone" ? "Stop Test Tone" : "Play Test Tone";
+  }
+}
+
+function handleCapturedSamples(channels: Float32Array[], sampleRate: number) {
+  if (audioSubscribers.size === 0) return;
+  const packet = encodePacket(channels, sampleRate);
+  if (!packet) return;
+  for (const track of [...audioSubscribers]) {
+    try {
+      track.writeFrame(packet.buffer);
+    } catch (error) {
+      console.warn("failed to write audio frame", error);
+      audioSubscribers.delete(track);
+    }
+  }
+}
+
+function handleCapturedLevel(level: number) {
+  updateSpeakingLevel(level);
+}
+
+function updateSpeakingLevel(level: number, force = false) {
+  currentSpeakingLevel = level;
+  localPlayer.speakingLevel = level;
+  const now = performance.now();
+  if (!force && now - lastSpeakingSent < SPEAKING_INTERVAL_MS) return;
+  broadcastSpeakingLevel();
+  lastSpeakingSent = now;
+}
+
+function broadcastSpeakingLevel() {
+  for (const track of [...speakingSubscribers]) {
+    try {
+      track.writeJson({ level: currentSpeakingLevel, ts: Date.now() });
+    } catch (error) {
+      console.warn("failed to write speaking level", error);
+      speakingSubscribers.delete(track);
+    }
+  }
+}
+
+window.addEventListener("beforeunload", () => {
+  audioCapture?.stop().catch(() => {});
+  audioPlayback.shutdown();
+});
+
 (async () => {
   updateStatus(`Connecting to ${relayUrl}…`);
   try {
@@ -85,6 +230,7 @@ let lastFrameTime = performance.now();
       onStatus: (message) => updateStatus(message),
       onSuccess: async (profile) => {
         currentProfile = profile;
+        enableAudioControls();
         await startSession(connection!, profile);
         broadcastProfileUpdate();
       },
@@ -145,6 +291,21 @@ function runPublishLoop(active: Moq.Broadcast, selfPath: Moq.Path.Valid) {
               profileSubscribers.delete(track);
             });
           sendProfile(track);
+        } else if (track.name === AUDIO_TRACK) {
+          audioSubscribers.add(track);
+          track.closed
+            .catch(() => undefined)
+            .finally(() => {
+              audioSubscribers.delete(track);
+            });
+        } else if (track.name === SPEAKING_TRACK) {
+          speakingSubscribers.add(track);
+          track.closed
+            .catch(() => undefined)
+            .finally(() => {
+              speakingSubscribers.delete(track);
+            });
+          broadcastSpeakingLevel();
         } else {
           track.close(new Error(`unsupported track ${track.name}`));
         }
@@ -200,8 +361,24 @@ function subscribeTo(path: Moq.Path.Valid) {
     console.warn(`profile track unavailable for ${path}`, error);
   }
 
+  let audioTrack: Moq.Track | undefined;
+  try {
+    audioTrack = broadcast.subscribe(AUDIO_TRACK, 0);
+  } catch (error) {
+    console.warn(`audio track unavailable for ${path}`, error);
+  }
+
+  let speakingTrack: Moq.Track | undefined;
+  try {
+    speakingTrack = broadcast.subscribe(SPEAKING_TRACK, 0);
+  } catch (error) {
+    console.warn(`speaking track unavailable for ${path}`, error);
+  }
+
   let positionActive = true;
   let profileActive = !!profileTrack;
+  let audioActive = !!audioTrack;
+  let speakingActive = !!speakingTrack;
   let closed = false;
 
   const finish = () => {
@@ -210,8 +387,12 @@ function subscribeTo(path: Moq.Path.Valid) {
     remoteSubscriptions.delete(path);
     positionTrack.close();
     profileTrack?.close();
+    audioTrack?.close();
+    speakingTrack?.close();
+    audioPlayback.close(path);
     const existing = players.get(path);
     if (existing && !existing.isLocal) {
+      existing.speakingLevel = 0;
       players.delete(path);
     }
   };
@@ -260,8 +441,50 @@ function subscribeTo(path: Moq.Path.Valid) {
       });
   }
 
+  if (audioTrack) {
+    (async () => {
+      await audioPlayback.resume();
+      for (;;) {
+        const payload = await audioTrack.readFrame();
+        if (!payload) break;
+        const packet = decodePacket(payload);
+        if (!packet) continue;
+        audioPlayback.enqueue(path, packet);
+      }
+    })()
+      .catch((error) => {
+        console.warn(`audio subscription failed for ${path}`, error);
+      })
+      .finally(() => {
+        audioActive = false;
+        maybeFinish();
+      });
+  }
+
+  if (speakingTrack) {
+    (async () => {
+      for (;;) {
+        const payload = await speakingTrack.readJson();
+        if (!payload) break;
+        const level = parseSpeaking(payload);
+        if (level === undefined) continue;
+        const player = ensurePlayer(players, path, undefined, undefined, localPlayer);
+        player.speakingLevel = level;
+      }
+    })()
+      .catch((error) => {
+        console.warn(`speaking subscription failed for ${path}`, error);
+      })
+      .finally(() => {
+        speakingActive = false;
+        const player = players.get(path);
+        if (player) player.speakingLevel = 0;
+        maybeFinish();
+      });
+  }
+
   function maybeFinish() {
-    if (!positionActive && !profileActive) {
+    if (!positionActive && !profileActive && !audioActive && !speakingActive) {
       finish();
     }
   }

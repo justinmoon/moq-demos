@@ -76,6 +76,53 @@
         font-size: 0.9rem;
         color: rgba(252, 211, 77, 0.9);
       }
+      fieldset {
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 12px;
+        padding: 0.75rem 1rem 1rem;
+        margin: 0 0 1rem;
+      }
+      fieldset[disabled] {
+        opacity: 0.5;
+      }
+      fieldset legend {
+        font-size: 0.95rem;
+        padding: 0 0.4rem;
+      }
+      #audio-controls .buttons {
+        display: flex;
+        gap: 0.75rem;
+        margin-bottom: 0.5rem;
+        flex-wrap: wrap;
+      }
+      #audio-controls button {
+        padding: 0.45rem 1rem;
+        border-radius: 999px;
+        border: none;
+        font-size: 0.9rem;
+        cursor: pointer;
+        background: #f97316;
+        color: #0f172a;
+        transition: transform 160ms ease, opacity 160ms ease;
+      }
+      #audio-controls button.active {
+        background: #34d399;
+        color: #052e16;
+      }
+      #audio-controls button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      #audio-controls button:not(:disabled):hover {
+        transform: translateY(-1px);
+      }
+      #audio-controls .monitor {
+        font-size: 0.85rem;
+        color: rgba(241, 245, 249, 0.7);
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
       canvas {
         display: block;
         width: 100%;
@@ -95,6 +142,16 @@
       <p id="nostr-warning" hidden>
         Missing a Nostr signer? Install a NIP-07 browser extension (for example, Alby or Damus) and refresh to join the arena.
       </p>
+      <fieldset id="audio-controls" disabled>
+        <legend>Voice</legend>
+        <div class="buttons">
+          <button id="mic-toggle" type="button">Enable Microphone</button>
+          <button id="tone-toggle" type="button">Play Test Tone</button>
+        </div>
+        <label class="monitor">
+          <input type="checkbox" id="monitor-audio" /> Monitor locally (headphones recommended)
+        </label>
+      </fieldset>
       <canvas id="arena" width="640" height="480"></canvas>
     </main>
     <script type="module" src="/src/main.ts"></script>
