@@ -1,6 +1,6 @@
 import type { DecodedPacket } from "./packets";
 
-const LEAD_SECONDS = 0.15;
+const LEAD_SECONDS = 0.35;
 
 export interface PlaybackStats {
   framesDecoded: number;
