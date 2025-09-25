@@ -30,10 +30,20 @@ serve:
     bunx --bun serve dist
 
 # Build and deploy to the static hosting target.
-static-deploy url='https://moq.justinmoon.com/anon' base='/s/map-coordinates/' app='map-coordinates':
-    just build url={{url}} base={{base}}
-    if ! command -v deploy-static >/dev/null 2>&1; then \
-        echo "deploy-static not found in PATH" >&2; \
-        exit 1; \
+static-deploy app='map-coordinates':
+    #!/usr/bin/env bash
+    set -e
+    APP_NAME="{{app}}"
+    BASE_PATH="/s/${APP_NAME}/"
+    RELAY_URL="https://moq.justinmoon.com/anon"
+    
+    echo "Building ${APP_NAME} for deployment at ${BASE_PATH}"
+    APP_BASE="${BASE_PATH}" VITE_RELAY_URL="${RELAY_URL}" bun run build
+    
+    if ! command -v deploy-static >/dev/null 2>&1; then
+        echo "deploy-static not found in PATH" >&2
+        exit 1
     fi
-    deploy-static {{app}} dist
+    
+    echo "Deploying to justinmoon.com${BASE_PATH}"
+    deploy-static "${APP_NAME}" dist
