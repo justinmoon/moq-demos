@@ -1,0 +1,10 @@
+# Dependencies
+node_modules/
+bun.lockb
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# Build outputs
+dist/
+.DS_Store

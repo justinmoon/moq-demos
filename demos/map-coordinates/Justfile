@@ -1,0 +1,20 @@
+#!/usr/bin/env just --justfile
+
+set quiet
+
+# List commands available in this demo.
+default:
+	just --list
+
+# Install dependencies for the map coordinates demo.
+install:
+	bun install
+
+# Start the dev server, optionally pointing at a custom relay URL.
+demo url='http://localhost:4443/anon':
+	bun install
+	VITE_RELAY_URL='{{url}}' bun run dev
+
+# Build a production bundle.
+build:
+	bun run build

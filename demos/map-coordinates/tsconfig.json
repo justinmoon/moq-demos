@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@kixelated/moq": ["../../../moq/js/moq/src/index.ts"],
+      "@kixelated/moq/*": ["../../../moq/js/moq/src/*"],
+      "@kixelated/signals": ["../../../moq/js/signals/src/index.ts"],
+      "@kixelated/signals/*": ["../../../moq/js/signals/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "vite.config.ts"]
+}

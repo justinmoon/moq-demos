@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MoQ Map Coordinates · Shared Arena</title>
+    <style>
+      :root {
+        color-scheme: dark light;
+        font-family: system-ui, sans-serif;
+        background: #101418;
+        color: #f3f4f6;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 2rem;
+      }
+      main {
+        max-width: 720px;
+        width: 100%;
+        background: rgba(15, 23, 42, 0.85);
+        border-radius: 16px;
+        padding: 1.5rem;
+        box-shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
+      }
+      h1 {
+        margin-top: 0;
+        font-size: 1.6rem;
+      }
+      p {
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+        color: rgba(241, 245, 249, 0.8);
+      }
+      #status {
+        min-height: 1.5rem;
+        font-size: 0.95rem;
+        margin-bottom: 1rem;
+        color: #7dd3fc;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-radius: 12px;
+        background: #0f172a;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>MoQ Map Coordinates · Shared Arena</h1>
+      <p>Open this page in multiple windows. Use WASD or arrow keys to walk around and watch positions sync in real time.</p>
+      <div id="status">Connecting…</div>
+      <canvas id="arena" width="640" height="480"></canvas>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

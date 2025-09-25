@@ -1,0 +1,21 @@
+{
+  "name": "moq-demo-map-coordinates",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@kixelated/web-transport-ws": "^0.1.2",
+    "async-mutex": "^0.5.0",
+    "dequal": "^2.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "typescript": "^5.4.5",
+    "vite": "^5.4.10"
+  }
+}
