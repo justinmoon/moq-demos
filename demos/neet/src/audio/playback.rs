@@ -1,31 +1,28 @@
 use std::{
     num::NonZeroUsize,
     ops::ControlFlow,
-    sync::{atomic::AtomicBool, Arc, Mutex},
     time::{Duration, Instant},
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use cpal::{
     traits::{DeviceTrait, StreamTrait},
     Device, Sample, SampleFormat,
 };
 use fixed_resample::{FixedResampler, ResampleQuality};
+use ringbuf::traits::Observer;
 use ringbuf::{
-    traits::{Consumer as _, Observer as _, Producer as _, Split},
+    traits::{Consumer as _, Producer as _, Split},
     HeapCons as Consumer, HeapProd as Producer,
 };
-use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, trace, trace_span, warn, Level};
 
 use super::{
     device::{find_device, find_output_stream_config, Direction, StreamConfigWithFormat},
     AudioFormat, WebrtcAudioProcessor, DURATION_10MS, DURATION_20MS, ENGINE_FORMAT, SAMPLE_RATE,
 };
-use crate::{
-    codec::opus::MediaTrackOpusDecoder,
-    media::{MediaFrame, MediaTrack},
-};
+use crate::{codec::opus::MediaTrackOpusDecoder, media::MediaTrack};
 
 pub trait AudioSource: Send + 'static {
     fn tick(&mut self, buf: &mut [f32]) -> Result<ControlFlow<(), usize>>;

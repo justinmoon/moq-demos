@@ -6,7 +6,6 @@ use crate::codec::Codec;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrackKind {
     Audio,
-    Video,
 }
 
 #[derive(Debug)]
@@ -43,10 +42,6 @@ impl MediaTrack {
         self.receiver.try_recv()
     }
 
-    pub fn kind(&self) -> TrackKind {
-        self.kind
-    }
-
     pub fn codec(&self) -> Codec {
         self.codec
     }
@@ -55,7 +50,9 @@ impl MediaTrack {
 #[derive(Debug, Clone)]
 pub struct MediaFrame {
     pub payload: Bytes,
+    #[allow(dead_code)]
     pub sample_count: Option<u32>,
     pub skipped_frames: Option<u32>,
+    #[allow(dead_code)]
     pub skipped_samples: Option<u32>,
 }

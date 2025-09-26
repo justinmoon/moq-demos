@@ -7,11 +7,9 @@ use std::{
 };
 
 use anyhow::Result;
-use dasp_sample::ToSample;
 use tracing::{debug, info};
 use webrtc_audio_processing::{
     Config, EchoCancellation, EchoCancellationSuppressionLevel, InitializationConfig,
-    NoiseSuppression, NoiseSuppressionLevel,
 };
 
 #[derive(Clone, Debug)]
@@ -62,10 +60,6 @@ impl WebrtcAudioProcessor {
 
     pub fn is_enabled(&self) -> bool {
         self.0.enabled.load(Ordering::SeqCst)
-    }
-
-    pub fn set_enabled(&self, enabled: bool) {
-        let _prev = self.0.enabled.swap(enabled, Ordering::SeqCst);
     }
 
     pub fn init_capture(&self, channels: usize) -> Result<()> {

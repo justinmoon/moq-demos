@@ -2,16 +2,12 @@ use std::{ops::ControlFlow, time::Duration};
 
 use anyhow::{bail, Result};
 use bytes::{Bytes, BytesMut};
-use ringbuf::{
-    traits::{Consumer as _, Observer, Producer as _, Split},
-    HeapCons as Consumer, HeapProd as Producer,
-};
 use tokio::sync::broadcast::{self, error::TryRecvError};
 use tracing::{debug, info, trace};
 
 use super::Codec;
 use crate::{
-    audio::{AudioFormat, AudioSink, AudioSource, SAMPLE_RATE},
+    audio::{AudioFormat, AudioSink, AudioSource},
     media::{MediaFrame, MediaTrack, TrackKind},
 };
 
@@ -80,10 +76,6 @@ impl MediaTrackOpusDecoder {
             _ => unreachable!(),
         }
         Ok(sample_count)
-    }
-
-    pub fn peek(&self) -> &[f32] {
-        &self.audio_buf
     }
 
     pub fn advance(&mut self, n: usize) {
@@ -246,20 +238,6 @@ impl OpusEncoder {
             samples,
             samples_per_frame,
         }
-    }
-
-    pub fn pop_from_consumer<'a>(
-        &'a mut self,
-        consumer: &'a mut Consumer<f32>,
-    ) -> impl Iterator<Item = (Bytes, u32)> + 'a {
-        std::iter::from_fn(|| {
-            for sample in consumer.pop_iter() {
-                if let Some((payload, sample_count)) = self.push_sample(sample) {
-                    return Some((payload, sample_count));
-                }
-            }
-            None
-        })
     }
 
     pub fn push_slice<'a>(

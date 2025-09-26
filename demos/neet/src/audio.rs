@@ -1,16 +1,12 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use bytes::Bytes;
 use cpal::{ChannelCount, SampleRate};
 
-use self::{
-    capture::AudioCapture, device::list_devices, playback::AudioPlayback,
-    ringbuf_pipe::ringbuf_pipe,
-};
+use self::{capture::AudioCapture, device::list_devices, playback::AudioPlayback};
 pub use self::{
     capture::AudioSink,
-    device::{AudioConfig, Devices, Direction},
+    device::{AudioConfig, Devices},
     playback::AudioSource,
 };
 use crate::media::MediaTrack;
@@ -45,10 +41,6 @@ impl AudioContext {
         tokio::task::spawn_blocking(list_devices).await?
     }
 
-    pub fn list_devices_sync() -> Result<Devices> {
-        list_devices()
-    }
-
     /// Create a new [`AudioContext`].
     pub async fn new(config: AudioConfig) -> Result<Self> {
         let host = cpal::default_host();
@@ -78,55 +70,6 @@ impl AudioContext {
         let track = self.capture_track().await?;
         self.play_track(track).await?;
         Ok(())
-    }
-
-    pub async fn feedback_raw(&self) -> Result<()> {
-        let buffer_size = ENGINE_FORMAT.sample_count(DURATION_20MS * 16);
-        let (sink, source) = ringbuf_pipe(buffer_size);
-        self.capture.add_sink(sink).await?;
-        self.playback.add_source(source).await?;
-        Ok(())
-    }
-}
-
-mod ringbuf_pipe {
-    use std::ops::ControlFlow;
-
-    use anyhow::Result;
-    use ringbuf::{
-        traits::{Consumer as _, Observer, Producer as _, Split},
-        HeapCons as Consumer, HeapProd as Producer,
-    };
-    use tracing::warn;
-
-    use super::{AudioSink, AudioSource};
-
-    pub struct RingbufSink(Producer<f32>);
-    pub struct RingbufSource(Consumer<f32>);
-
-    pub fn ringbuf_pipe(buffer_size: usize) -> (RingbufSink, RingbufSource) {
-        let (producer, consumer) = ringbuf::HeapRb::<f32>::new(buffer_size).split();
-        (RingbufSink(producer), RingbufSource(consumer))
-    }
-
-    impl AudioSink for RingbufSink {
-        fn tick(&mut self, buf: &[f32]) -> Result<ControlFlow<(), ()>> {
-            let len = self.0.push_slice(buf);
-            if len < buf.len() {
-                warn!("ringbuf sink xrun: failed to send {}", buf.len() - len);
-            }
-            Ok(ControlFlow::Continue(()))
-        }
-    }
-
-    impl AudioSource for RingbufSource {
-        fn tick(&mut self, buf: &mut [f32]) -> Result<ControlFlow<(), usize>> {
-            let len = self.0.pop_slice(buf);
-            if len < buf.len() {
-                warn!("ringbuf source xrun: failed to recv {}", buf.len() - len);
-            }
-            Ok(ControlFlow::Continue(len))
-        }
     }
 }
 

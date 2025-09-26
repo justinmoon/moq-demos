@@ -1,16 +1,10 @@
 use std::{
-    cmp::Ordering,
     num::NonZeroUsize,
     ops::ControlFlow,
-    sync::{
-        atomic::{AtomicBool, AtomicU64},
-        Arc,
-    },
     time::{Duration, Instant},
 };
 
-use anyhow::{anyhow, bail, Context, Result};
-use bytes::{Bytes, BytesMut};
+use anyhow::{anyhow, Context, Result};
 use cpal::{
     traits::{DeviceTrait, StreamTrait},
     Device, SampleFormat,
@@ -18,20 +12,17 @@ use cpal::{
 use dasp_sample::ToSample;
 use fixed_resample::{FixedResampler, ResampleQuality};
 use ringbuf::{
-    traits::{Consumer as _, Observer, Producer as _, Split},
+    traits::{Consumer as _, Producer as _, Split},
     HeapCons as Consumer, HeapProd as Producer,
 };
-use tokio::sync::{broadcast, mpsc, oneshot};
-use tracing::{debug, error, info, span, trace, trace_span, warn, Level};
+use tokio::sync::{mpsc, oneshot};
+use tracing::{debug, error, info, trace, trace_span, warn, Level};
 
 use super::{
     device::{find_device, find_input_stream_config, Direction, StreamConfigWithFormat},
-    AudioFormat, WebrtcAudioProcessor, DURATION_10MS, DURATION_20MS, ENGINE_FORMAT, SAMPLE_RATE,
+    AudioFormat, WebrtcAudioProcessor, DURATION_10MS, DURATION_20MS, ENGINE_FORMAT,
 };
-use crate::{
-    codec::opus::MediaTrackOpusEncoder,
-    media::{MediaFrame, MediaTrack, TrackKind},
-};
+use crate::{codec::opus::MediaTrackOpusEncoder, media::MediaTrack};
 
 pub trait AudioSink: Send + 'static {
     fn tick(&mut self, buf: &[f32]) -> Result<ControlFlow<(), ()>>;
@@ -155,7 +146,7 @@ struct CaptureState {
     resampler: FixedResampler<f32, 2>,
 }
 
-fn build_capture_stream<S: dasp_sample::ToSample<f32> + cpal::SizedSample + Default>(
+fn build_capture_stream<S: ToSample<f32> + cpal::SizedSample + Default>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
     mut state: CaptureState,
