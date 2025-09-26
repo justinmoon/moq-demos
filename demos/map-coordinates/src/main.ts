@@ -1,9 +1,9 @@
 import * as Moq from "@kixelated/moq";
 import { queueAvatarLoad } from "./avatars";
-import { AudioCapture } from "./audio/capture";
 import { AudioPlayback } from "./audio/playback";
 import type { PlaybackStats } from "./audio/playback";
-import { decodePacket, encodePacket } from "./audio/packets";
+import { OpusPublisher } from "./audio/opusPublisher";
+import { decodeFrame } from "./audio/opusFrame";
 import { setupLogin } from "./login";
 import { drawGrid, drawPlayer, drawZones } from "./render";
 import { parsePosition, parseProfile, parseSpeaking, parseZones } from "./parsers";
@@ -52,7 +52,7 @@ const ARENA_WIDTH = 640;
 const ARENA_HEIGHT = 480;
 const POSITION_TRACK = "position.json";
 const PROFILE_TRACK = "profile.json";
-const AUDIO_TRACK = "audio.pcm";
+const AUDIO_TRACK = "audio.opus";
 const SPEAKING_TRACK = "speaking.json";
 const ZONES_TRACK = "zones.json";
 const SPEED = 180; // pixels per second
@@ -93,18 +93,21 @@ const players = new Map<string, Player>();
 const remoteSubscriptions = new Map<string, () => void>();
 const positionSubscribers = new Set<Moq.Track>();
 const profileSubscribers = new Set<Moq.Track>();
-const audioSubscribers = new Set<Moq.Track>();
 const speakingSubscribers = new Set<Moq.Track>();
 const zonesSubscribers = new Set<Moq.Track>();
 const selfBroadcastPaths = new Set<Moq.Path.Valid>();
 const keys = new Set<string>();
 
-let audioCapture: AudioCapture | undefined;
+const opusPublisher = new OpusPublisher();
 const audioPlayback = new AudioPlayback();
 let captureMode: "mic" | "tone" | undefined;
 let currentSpeakingLevel = 0;
 let lastSpeakingSent = 0;
 let currentZones: string[] = [];
+
+opusPublisher.setLevelCallback((level) => {
+  updateSpeakingLevel(level);
+});
 
 installDebugApi();
 
@@ -169,27 +172,21 @@ async function toggleCapture(mode: "mic" | "tone") {
 }
 
 async function startCapture(mode: "mic" | "tone") {
-  if (audioCapture) {
-    await audioCapture.stop();
+  if (opusPublisher.active) {
+    await opusPublisher.stop().catch(() => undefined);
   }
   captureMode = mode;
-  audioCapture = new AudioCapture(
-    {
-      onSamples: (channels, sampleRate) => handleCapturedSamples(channels, sampleRate),
-      onLevel: (level) => handleCapturedLevel(level),
-    },
-    {
-      syntheticTone: mode === "tone",
-      monitor: monitorCheckbox?.checked ?? false,
-    },
-  );
 
   try {
     await audioPlayback.resume();
-    await audioCapture.start();
+    await opusPublisher.start({
+      mode,
+      monitor: monitorCheckbox?.checked ?? false,
+      syntheticToneLevel: 0.25,
+    });
   } catch (error) {
     captureMode = undefined;
-    audioCapture = undefined;
+    await opusPublisher.stop().catch(() => undefined);
     console.error("audio capture failed", error);
     updateStatus(`Audio capture failed: ${(error as Error).message}`);
   }
@@ -198,10 +195,7 @@ async function startCapture(mode: "mic" | "tone") {
 }
 
 async function stopCapture() {
-  if (audioCapture) {
-    await audioCapture.stop();
-  }
-  audioCapture = undefined;
+  await opusPublisher.stop().catch(() => undefined);
   captureMode = undefined;
   updateCaptureButtons();
   updateSpeakingLevel(0, true);
@@ -216,24 +210,6 @@ function updateCaptureButtons() {
     toneToggle.classList.toggle("active", captureMode === "tone");
     toneToggle.textContent = captureMode === "tone" ? "Stop Test Tone" : "Play Test Tone";
   }
-}
-
-function handleCapturedSamples(channels: Float32Array[], sampleRate: number) {
-  if (audioSubscribers.size === 0) return;
-  const packet = encodePacket(channels, sampleRate);
-  if (!packet) return;
-  for (const track of [...audioSubscribers]) {
-    try {
-      track.writeFrame(packet.buffer);
-    } catch (error) {
-      console.warn("failed to write audio frame", error);
-      audioSubscribers.delete(track);
-    }
-  }
-}
-
-function handleCapturedLevel(level: number) {
-  updateSpeakingLevel(level);
 }
 
 function updateSpeakingLevel(level: number, force = false) {
@@ -317,7 +293,7 @@ async function startSession(active: Moq.Connection.Established, profile: Profile
   broadcast?.close();
 
   broadcast = new Moq.Broadcast();
-  const pathSuffix = Moq.Path.from(`${profile.npub}#${tabSuffix}`);
+  const pathSuffix = Moq.Path.from(`${profile.npub}`, `${tabSuffix}`);
   const broadcastPath = Moq.Path.join(prefix, pathSuffix);
 
   localPlayer.key = broadcastPath;
@@ -373,11 +349,11 @@ function runPublishLoop(active: Moq.Broadcast, selfPath: Moq.Path.Valid) {
             });
           sendZones(track);
         } else if (track.name === AUDIO_TRACK) {
-          audioSubscribers.add(track);
+          const dispose = opusPublisher.addTrack(track);
           track.closed
             .catch(() => undefined)
             .finally(() => {
-              audioSubscribers.delete(track);
+              dispose();
             });
         } else if (track.name === SPEAKING_TRACK) {
           speakingSubscribers.add(track);
@@ -538,12 +514,106 @@ function subscribeTo(path: Moq.Path.Valid) {
   if (audioTrack) {
     (async () => {
       await audioPlayback.resume();
+
+      type PendingChunk = { timestamp: number; keyframe: boolean; data: Uint8Array };
+
+      let decoder: AudioDecoder | undefined;
+      let decoderFailed = false;
+      const pending: PendingChunk[] = [];
+
+      const handleAudioData = (data: AudioData) => {
+        try {
+          const channels: Float32Array[] = [];
+          for (let i = 0; i < data.numberOfChannels; i += 1) {
+            const channel = new Float32Array(data.numberOfFrames);
+            data.copyTo(channel, { planeIndex: i, format: "f32-planar" });
+            channels.push(channel);
+          }
+
+          audioPlayback.enqueue(path, {
+            channels,
+            sampleRate: data.sampleRate,
+            frameCount: data.numberOfFrames,
+          });
+        } catch (error) {
+          console.warn(`failed to process decoded audio for ${path}`, error);
+        } finally {
+          data.close();
+        }
+      };
+
+      const decodeChunk = (chunk: PendingChunk) => {
+        if (!decoder) {
+          pending.push(chunk);
+          return;
+        }
+        if (decoderFailed) {
+          return;
+        }
+        try {
+          const encoded = new EncodedAudioChunk({
+            type: chunk.keyframe ? "key" : "delta",
+            timestamp: chunk.timestamp,
+            data: chunk.data,
+          });
+          decoder.decode(encoded);
+        } catch (error) {
+          console.warn(`failed to decode audio chunk for ${path}`, error);
+        }
+      };
+
+      const ensureDecoder = (config: { codec: string; sampleRate: number; numberOfChannels: number }) => {
+        if (decoderFailed || decoder) return;
+        try {
+          decoder = new AudioDecoder({
+            output: handleAudioData,
+            error: (error) => {
+              console.warn(`audio decoder error for ${path}`, error);
+            },
+          });
+
+          const decoderConfig: AudioDecoderConfig = {
+            codec: config.codec,
+            sampleRate: config.sampleRate,
+            numberOfChannels: config.numberOfChannels,
+          };
+
+          decoder.configure(decoderConfig);
+
+          while (pending.length > 0) {
+            const next = pending.shift();
+            if (next) decodeChunk(next);
+          }
+        } catch (error) {
+          console.warn(`failed to configure audio decoder for ${path}`, error);
+          decoder = undefined;
+          decoderFailed = true;
+        }
+      };
+
       for (;;) {
         const payload = await audioTrack.readFrame();
         if (!payload) break;
-        const packet = decodePacket(payload);
-        if (!packet) continue;
-        audioPlayback.enqueue(path, packet);
+        const frame = decodeFrame(payload);
+        if (!frame) continue;
+        if (decoderFailed) {
+          continue;
+        }
+        if (frame.kind === "config") {
+          ensureDecoder(frame.config);
+        } else if (frame.kind === "chunk") {
+          const replica: PendingChunk = {
+            timestamp: frame.chunk.timestamp,
+            keyframe: frame.chunk.keyframe,
+            data: frame.chunk.data.slice(),
+          };
+          decodeChunk(replica);
+        }
+      }
+
+      if (decoder) {
+        await decoder.flush().catch(() => undefined);
+        decoder.close();
       }
     })()
       .catch((error) => {
@@ -551,8 +621,8 @@ function subscribeTo(path: Moq.Path.Valid) {
       })
       .finally(() => {
         audioActive = false;
-      maybeFinish();
-    });
+        maybeFinish();
+      });
   }
 
   if (zonesTrack) {

@@ -1283,6 +1283,8 @@ dependencies = [
 [[package]]
 name = "moq-lite"
 version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5f81940d83847690ed7a37dd66db76979a31493ac9a33b60e75ac139a45d13c"
 dependencies = [
  "async-channel",
  "bytes",
@@ -1298,6 +1300,8 @@ dependencies = [
 [[package]]
 name = "moq-native"
 version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "251413714e2cf14f4862507a7c60132e4831e394b9f54036e3a5be3ffff94ecb"
 dependencies = [
  "anyhow",
  "clap",
